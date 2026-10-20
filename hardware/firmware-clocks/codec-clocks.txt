@@ -1,0 +1,8 @@
+# Hold the VideoCore codec blocks at their full stock clock (Raspberry Pi 4).
+# The firmware runs the H.264, ISP and core clocks at their minimum (250/250/200 MHz) unless the ARM is at full
+# speed, and the H.264 decoder driver (bcm2835-codec) asks for no clock, so under the ondemand governor a hardware
+# H.264 decode ran at half speed: 54 fps instead of 90 for one 1080p stream.
+# Stock maximum clocks, no overvoltage.
+h264_freq_min=500
+isp_freq_min=500
+core_freq_min=500

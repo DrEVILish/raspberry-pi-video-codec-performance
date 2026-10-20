@@ -1,0 +1,21 @@
+Subject: [PATCH] ARM: dts: bcm2711-rpi: Give vchiq the codec clocks
+
+bcm2835-codec (a vchiq client) drives the H.264, ISP and VPU-core blocks
+through the firmware. Name their clocks on the vchiq node so the driver can
+hold them up while it streams, as rpi-hevc-dec does through its own node.
+
+---
+--- a/arch/arm/boot/dts/broadcom/bcm2711-rpi.dtsi
++++ b/arch/arm/boot/dts/broadcom/bcm2711-rpi.dtsi
+@@ -120,6 +120,11 @@
+ 
+ &vchiq {
+ 	interrupts = <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
++	/* Blocks behind bcm2835-codec: H.264 (decode/encode), ISP, VPU core */
++	clocks = <&firmware_clocks 6>,
++		 <&firmware_clocks 7>,
++		 <&firmware_clocks 4>;
++	clock-names = "h264", "isp", "core";
+ };
+ 
+ &hevc_dec {

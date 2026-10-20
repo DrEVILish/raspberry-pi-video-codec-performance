@@ -1,0 +1,26 @@
+Subject: [PATCH] clk: bcm: rpi: Export the H.264 firmware clock
+
+The firmware lists the H.264 block's clock (id 6) in GET_CLOCKS, but the
+driver has no variant for it, so it is never registered and no consumer can
+request it. Register it like the ISP and HEVC clocks (minimise, critical).
+
+Measured on a Pi 4 (6.18.50+rpt): with the default ondemand governor the
+firmware runs the H.264 block at 250 MHz during V4L2 decode (the ARM never
+reaches turbo), giving 53-54 fps for a 1080p H.264 stream; with the block at
+500-650 MHz the same stream decodes at 90-97 fps.
+
+---
+--- a/drivers/clk/bcm/clk-raspberrypi.c
++++ b/drivers/clk/bcm/clk-raspberrypi.c
+@@ -149,6 +149,11 @@
+ 		.minimize = true,
+ 		.flags = CLK_IS_CRITICAL,
+ 	},
++	[RPI_FIRMWARE_H264_CLK_ID] = {
++		.export = true,
++		.minimize = true,
++		.flags = CLK_IS_CRITICAL,
++	},
+ 	[RPI_FIRMWARE_ISP_CLK_ID] = {
+ 		.export = true,
+ 		.minimize = true,

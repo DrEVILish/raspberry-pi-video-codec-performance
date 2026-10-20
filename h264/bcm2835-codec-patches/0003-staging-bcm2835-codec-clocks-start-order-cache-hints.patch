@@ -1,0 +1,308 @@
+Subject: [PATCH] staging: bcm2835-codec: Hold clocks while streaming, wait for CAPTURE on non-decoders, allow cache hints
+
+1. Clocks. Request the role's firmware clock (h264 for decode/encode, isp for
+   the ISP, deinterlace and JPEG encode roles) and the VPU core clock at their
+   maximum while any context streams, and drop the request when the last one
+   stops. Without it the firmware leaves them at minimum unless the ARM is in
+   turbo, which hardware decode alone never causes (1080p H.264: 53-54 fps at
+   250 MHz vs 90-97 fps at 500-650 MHz). The clocks are optional: without the
+   DT properties, or without a maximum rate from the firmware, nothing
+   changes. They are taken with clk_get_optional() on the vchiq parent (not
+   devm, whose lifetime is the parent's) and put on remove. A failed
+   start_streaming drops the request unless the other queue still streams.
+
+2. Start order. ignore_cap_streaming was set for every role, so the ISP,
+   deinterlacer and encoders send OUTPUT buffers to the firmware before the
+   CAPTURE port is enabled. The firmware drops such a buffer after ~0.5 s:
+   raw V4L2 on the ISP, STREAMON(OUTPUT) then STREAMON(CAPTURE) loses frame 0
+   and delivers the first frame 490-500 ms later; in the other order the first
+   frame arrives after 3.8 ms. Only the stateful decoder needs to start
+   without CAPTURE (header parsing), so set it for DECODE only.
+
+3. Cache hints. Set allow_cache_hints on both queues so userspace can ask for
+   cached (V4L2_MEMORY_FLAG_NON_COHERENT) MMAP buffers. CPU reads of the
+   default write-combined buffers run at ~510 MB/s (6.1 ms per 1080p YU12
+   frame); the same read from a cached CMA dma-heap buffer, including the
+   DMA_BUF_IOCTL_SYNC invalidate, takes 3.3 ms. Default behaviour unchanged.
+
+Compile-tested against 6.18.50+rpt-rpi-v8. Not run-tested: loading it needs
+the vchiq clients unloaded, and the clock part needs patches 1 and 2.
+
+---
+--- a/drivers/staging/vc04_services/bcm2835-codec/bcm2835-v4l2-codec.c
++++ b/drivers/staging/vc04_services/bcm2835-codec/bcm2835-v4l2-codec.c
+@@ -21,6 +21,7 @@
+  * License, or (at your option) any later version
+  */
+ #include <linux/module.h>
++#include <linux/clk.h>
+ #include <linux/delay.h>
+ #include <linux/fs.h>
+ #include <linux/timer.h>
+@@ -35,6 +36,8 @@
+ #include <media/v4l2-event.h>
+ #include <media/videobuf2-dma-contig.h>
+ 
++#include <soc/bcm2835/raspberrypi-firmware.h>
++
+ #include "../interface/vchiq_arm/vchiq_bus.h"
+ 
+ #include "../vchiq-mmal/mmal-encodings.h"
+@@ -699,6 +702,18 @@
+ 	struct vchiq_mmal_instance	*instance;
+ 
+ 	struct v4l2_m2m_dev	*m2m_dev;
++
++	/*
++	 * Firmware clocks the role's hardware block runs from (optional, from
++	 * the vchiq node's "clocks"). Held at their maximum while any context
++	 * of this device is streaming, released when the last one stops.
++	 * num_streaming is protected by dev_mutex (the vb2 queue lock).
++	 */
++	struct clk		*clk_block;
++	unsigned long		clk_block_max;
++	struct clk		*clk_core;
++	unsigned long		clk_core_max;
++	unsigned int		num_streaming;
+ };
+ 
+ struct bcm2835_codec_ctx {
+@@ -726,6 +741,7 @@
+ 	unsigned int	framerate_denom;
+ 
+ 	bool aborting;
++	bool clocks_held;
+ 	int num_ip_buffers;
+ 	int num_op_buffers;
+ 	struct completion frame_cmplt;
+@@ -3040,6 +3056,41 @@
+ 		}
+ 	}
+ }
++/*
++ * The firmware runs the H.264, ISP and core clocks at their minimum unless the
++ * ARM is at full speed, which a hardware decode alone never causes, so request
++ * them like rpi-hevc-dec does for its block. Called with dev_mutex held.
++ */
++static void bcm2835_codec_hold_clocks(struct bcm2835_codec_ctx *ctx)
++{
++	struct bcm2835_codec_dev *dev = ctx->dev;
++
++	if (ctx->clocks_held)
++		return;
++	ctx->clocks_held = true;
++	if (dev->num_streaming++)
++		return;
++
++	if (clk_set_min_rate(dev->clk_block, dev->clk_block_max) ||
++	    clk_set_min_rate(dev->clk_core, dev->clk_core_max))
++		v4l2_warn(&dev->v4l2_dev, "%s: failed to raise clocks\n",
++			  __func__);
++}
++
++static void bcm2835_codec_release_clocks(struct bcm2835_codec_ctx *ctx)
++{
++	struct bcm2835_codec_dev *dev = ctx->dev;
++
++	if (!ctx->clocks_held)
++		return;
++	ctx->clocks_held = false;
++	if (--dev->num_streaming)
++		return;
++
++	clk_set_min_rate(dev->clk_block, 0);
++	clk_set_min_rate(dev->clk_core, 0);
++}
++
+ static int bcm2835_codec_start_streaming(struct vb2_queue *q,
+ 					 unsigned int count)
+ {
+@@ -3053,6 +3104,8 @@
+ 		 __func__, q->type, count);
+ 	q_data->sequence = 0;
+ 
++	bcm2835_codec_hold_clocks(ctx);
++
+ 	if (!ctx->component_enabled) {
+ 		ret = vchiq_mmal_component_enable(dev->instance,
+ 						  ctx->component);
+@@ -3149,6 +3202,15 @@
+ 	}
+ 	v4l2_dbg(1, debug, &ctx->dev->v4l2_dev, "%s: Done, ret %d\n",
+ 		 __func__, ret);
++
++	/*
++	 * vb2 won't call stop_streaming for a queue whose start failed, so
++	 * drop the clock request here unless the other queue still streams.
++	 */
++	if (ret && !vb2_is_streaming(V4L2_TYPE_IS_OUTPUT(q->type) ?
++				     v4l2_m2m_get_dst_vq(ctx->fh.m2m_ctx) :
++				     v4l2_m2m_get_src_vq(ctx->fh.m2m_ctx)))
++		bcm2835_codec_release_clocks(ctx);
+ 	return ret;
+ }
+ 
+@@ -3216,6 +3278,12 @@
+ 		ctx->component_enabled = false;
+ 	}
+ 
++	/* q itself still reads as streaming here; release with the last queue. */
++	if (!vb2_is_streaming(V4L2_TYPE_IS_OUTPUT(q->type) ?
++			      v4l2_m2m_get_dst_vq(ctx->fh.m2m_ctx) :
++			      v4l2_m2m_get_src_vq(ctx->fh.m2m_ctx)))
++		bcm2835_codec_release_clocks(ctx);
++
+ 	if (V4L2_TYPE_IS_OUTPUT(q->type))
+ 		mmal_vchi_buffer_cleanup(&q_data->eos_buffer.mmal);
+ 
+@@ -3249,6 +3317,7 @@
+ 	src_vq->dev = &ctx->dev->device->dev;
+ 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
+ 	src_vq->lock = &ctx->dev->dev_mutex;
++	src_vq->allow_cache_hints = 1;
+ 
+ 	ret = vb2_queue_init(src_vq);
+ 	if (ret)
+@@ -3263,6 +3332,11 @@
+ 	dst_vq->dev = &ctx->dev->device->dev;
+ 	dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
+ 	dst_vq->lock = &ctx->dev->dev_mutex;
++	/*
++	 * Let userspace ask for cached (V4L2_MEMORY_FLAG_NON_COHERENT) MMAP
++	 * buffers: CPU reads of the default write-combined ones run at ~0.5 GB/s.
++	 */
++	dst_vq->allow_cache_hints = 1;
+ 
+ 	return vb2_queue_init(dst_vq);
+ }
+@@ -3578,7 +3652,13 @@
+ 	v4l2_m2m_set_src_buffered(ctx->fh.m2m_ctx, true);
+ 	v4l2_m2m_set_dst_buffered(ctx->fh.m2m_ctx, true);
+ 
+-	ctx->fh.m2m_ctx->ignore_cap_streaming = true;
++	/*
++	 * A stateful decoder parses the stream headers before the CAPTURE
++	 * queue is set up. The other roles must not start: a buffer sent to
++	 * the component while its output port is disabled is dropped by the
++	 * firmware after ~0.5 s (ISP: first frame lost, 490 ms stall).
++	 */
++	ctx->fh.m2m_ctx->ignore_cap_streaming = dev->role == DECODE;
+ 
+ 	v4l2_fh_add(&ctx->fh, file);
+ 	atomic_inc(&dev->num_inst);
+@@ -3762,6 +3842,82 @@
+ 	return ret;
+ }
+ 
++static unsigned long bcm2835_codec_clk_max(struct clk *clk, unsigned int id)
++{
++	struct device_node *node;
++	struct rpi_firmware *fw;
++	unsigned long rate;
++
++	if (!clk)
++		return 0;
++
++	node = rpi_firmware_find_node();
++	if (!node)
++		return 0;
++	fw = rpi_firmware_get(node);
++	of_node_put(node);
++	if (!fw)
++		return 0;
++	rate = rpi_firmware_clk_get_max_rate(fw, id);
++	rpi_firmware_put(fw);
++
++	return rate;
++}
++
++static void bcm2835_codec_put_clocks(struct bcm2835_codec_dev *dev)
++{
++	clk_put(dev->clk_block);
++	dev->clk_block = NULL;
++	clk_put(dev->clk_core);
++	dev->clk_core = NULL;
++}
++
++/*
++ * Optional clock from the vchiq platform device's DT node. Not devm: the
++ * parent outlives this driver, so its devres would only be freed when vchiq
++ * unbinds. A clock whose maximum the firmware won't report is not used.
++ */
++static int bcm2835_codec_get_clock(struct bcm2835_codec_dev *dev,
++				   const char *name, unsigned int id,
++				   struct clk **clk, unsigned long *max)
++{
++	struct device *parent = dev->device->dev.parent;
++
++	*clk = clk_get_optional(parent, name);
++	if (IS_ERR(*clk)) {
++		int ret = PTR_ERR(*clk);
++
++		*clk = NULL;
++		return dev_err_probe(parent, ret, "getting %s clock\n", name);
++	}
++	*max = bcm2835_codec_clk_max(*clk, id);
++	if (*clk && !*max) {
++		dev_warn(parent, "%s clock: no maximum rate from firmware, not requesting it\n",
++			 name);
++		clk_put(*clk);
++		*clk = NULL;
++	}
++	return 0;
++}
++
++static int bcm2835_codec_get_clocks(struct bcm2835_codec_dev *dev)
++{
++	bool h264 = dev->role == DECODE || dev->role == ENCODE;
++	int ret;
++
++	ret = bcm2835_codec_get_clock(dev, h264 ? "h264" : "isp",
++				      h264 ? RPI_FIRMWARE_H264_CLK_ID :
++					     RPI_FIRMWARE_ISP_CLK_ID,
++				      &dev->clk_block, &dev->clk_block_max);
++	if (ret)
++		return ret;
++	ret = bcm2835_codec_get_clock(dev, "core", RPI_FIRMWARE_CORE_CLK_ID,
++				      &dev->clk_core, &dev->clk_core_max);
++	if (ret)
++		bcm2835_codec_put_clocks(dev);
++	return ret;
++}
++
+ static int bcm2835_codec_create(struct bcm2835_codec_driver *drv,
+ 				struct bcm2835_codec_dev **new_dev,
+ 				enum bcm2835_codec_role role)
+@@ -3781,10 +3937,14 @@
+ 
+ 	dev->role = role;
+ 
+-	ret = vchiq_mmal_init(&device->dev, &dev->instance);
++	ret = bcm2835_codec_get_clocks(dev);
+ 	if (ret)
+ 		return ret;
+ 
++	ret = vchiq_mmal_init(&device->dev, &dev->instance);
++	if (ret)
++		goto put_clocks;
++
+ 	ret = bcm2835_codec_get_supported_fmts(dev);
+ 	if (ret)
+ 		goto vchiq_finalise;
+@@ -3888,6 +4048,8 @@
+ 	v4l2_device_unregister(&dev->v4l2_dev);
+ vchiq_finalise:
+ 	vchiq_mmal_finalise(dev->instance);
++put_clocks:
++	bcm2835_codec_put_clocks(dev);
+ 	return ret;
+ }
+ 
+@@ -3903,6 +4065,7 @@
+ 	video_unregister_device(&dev->vfd);
+ 	v4l2_device_unregister(&dev->v4l2_dev);
+ 	vchiq_mmal_finalise(dev->instance);
++	bcm2835_codec_put_clocks(dev);
+ 
+ 	return 0;
+ }

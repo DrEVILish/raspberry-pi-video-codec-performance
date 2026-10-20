@@ -1,0 +1,45 @@
+--- a/Codec/decoder.c
++++ b/Codec/decoder.c
+@@ -10098,6 +10098,12 @@
+ 	DECODER *local_decoder = decoder;
+ 	//Frame_Region emptyFrameMask = {0};
+ 	Frame_Region emptyFrameMask = FRAME_REGION_INITIALIZER;
++
++	{	// CuTePi: every sample dithers from the same generator state (Codec/cutepi_rand.c)
++		void cutepi_rand_reset(void);
++		cutepi_rand_reset();
++	}
++
+ 	int orig_width = decoder->frame.width;
+ 	int orig_height = decoder->frame.height;
+ 
+@@ -20774,6 +20780,9 @@
+ 
+ 					chunksize -= 8;
+ 
++					// Bounds (CuTePi): the size tag must point inside the sample.
++					if (chunksize < 0 || chunksize + 4 > stream->nWordsUsed)
++						goto continuesearch;
+ 					{
+ 						uint32_t *ptr = (uint32_t *)stream->lpCurrentWord;
+ 						ptr += (chunksize>>2);
+@@ -20791,11 +20800,18 @@
+ 				else
+ 				{
+ continuesearch:
+-					while(*((uint32_t *)stream->lpCurrentWord) != 0x00003800) // bandend
++					// Bounds (CuTePi): a sample without a band end (e.g. from FFmpeg's encoder) ran this scan off
++					// the end of the buffer (segfault in threaded decoding); stop at the end and fail the sample.
++					while(stream->nWordsUsed >= 4 && *((uint32_t *)stream->lpCurrentWord) != 0x00003800) // bandend
+ 					{
+ 						stream->lpCurrentWord += 4;
+ 						stream->nWordsUsed -= 4;
+ 					}
++					if (stream->nWordsUsed < 4)
++					{
++						stream->error = BITSTREAM_ERROR_UNDERFLOW;
++						return false;
++					}
+ 					end = stream->nWordsUsed;
+ 				}
+ 			}

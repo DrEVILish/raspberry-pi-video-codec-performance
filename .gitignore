@@ -1,0 +1,4 @@
+*.so
+*.o
+*.ko
+cineform/cineform-sdk-aarch64/cineform-sdk/
