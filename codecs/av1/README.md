@@ -20,7 +20,7 @@ the system's **libdav1d** (`libdav1d.so.7`, loaded at run time against vendored 
 | Property | Default | |
 |---|---|---|
 | `n-threads` | 0 | dav1d worker threads, 0 = one per core |
-| `max-frame-delay` | 0 | frames decoded in parallel, 0 = automatic. 1 = lowest latency, slowest |
+| `max-frame-delay` | 4 | frames decoded in parallel. 0 = dav1d's choice (2 on four cores, 16% slower at 1080p on a Pi 4), 1 = lowest latency, slowest |
 | `zero-copy` | true | hand dav1d's buffers downstream when it takes video meta (false: copy every picture) |
 
 ## Install

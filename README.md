@@ -73,7 +73,8 @@ best of three runs.
 
 What changed (details in [`codecs/animated-images/`](codecs/animated-images/)):
 
-- **GIF:** the LZW decoder reads codes 8 bytes at a time and writes each string straight to its place.
+- **GIF:** the LZW decoder reads codes 8 bytes at a time and writes each string straight to its place (since
+  improved again: see below).
 - **WebP, APNG:** next to four decode workers the memory bus is the limit (one copy of a 1080p RGBA frame costs
   5-14 ms). A frame that replaces its region is decoded straight into the output buffer, and only what lies outside
   it is copied from the previous frame. Opaque frames count as replacing.
@@ -97,15 +98,25 @@ The GIF gain carries over in full. The WebP and APNG gains are smaller than on t
 is much faster. Peak memory grows by at most 30 MB: frames decoded ahead can each hold an output buffer (up to 8,
 8 MB each at 1080p).
 
-### The other decoders, re-measured on the Raspberry Pi 4
+### Second round: every decoder CuTePi uses
 
-No change was made to these: they are at the limit of the library or the memory bus.
+The same Pi, a day later, with CuTePi showing a picture on the display (its scanout shares the memory bus, so the
+absolute numbers are lower than above). Steady-state rate from the first frame to the last into `fakesink`, median
+of five runs, the previous version against this one in alternation. Same frames, byte for byte, on every clip, and
+CuTePi's own tests for these elements pass.
 
-| Decoder | Clip | GStreamer's own | This repository |
-|---|---|---|---|
-| `cutepipngvdec` | PNG RGBA in MOV, 1080p60, 300 frames | 44.4 fps (`pngdec`) | **153-156 fps** |
-| `cutepimjpegdec` | MJPEG 4:2:0 `-q:v 3` in MOV, 1080p60, 600 frames | 132-138 fps (`jpegdec`) | **324-353 fps** (3 workers, the default); 361-379 with `n-workers=4` |
-| `cutepidav1ddec` | AV1 (SVT-AV1 preset 11, CRF 35) in MKV, 1080p60, 480 frames | - | **112-113 fps** |
+| Decoder, clip | Before | After | Change | What changed |
+|---|---|---|---|---|
+| `cutepianimdec` GIF, 1080p30 `testsrc2` | 111 fps | **166 fps** | +50% | an LZW code is a copy from earlier in the output (every dictionary string is already there), not a walk down its prefix chain a byte at a time |
+| `cutepianimdec` GIF, CuTePi test image | 852 fps | **1250 fps** | +47% | same |
+| `cutepidav1ddec` AV1, 1080p60 (SVT-AV1 preset 11, CRF 35) | 115 fps | **133 fps** | +16% | `max-frame-delay` 4 by default, not dav1d's 2 on four cores: the cores stay busy |
+| `cutepidav1ddec` AV1, CuTePi test clip 1080p30 | 110 fps | **128 fps** | +16% | same |
+| `cutepimjpegdec` MJPEG, CuTePi test clip (AVI 1080p30) | 322 fps | **360 fps** | +12% | any free worker takes the next frame, two frames a worker in flight (one a worker, round-robin, left workers idle while the oldest frame finished) |
+| `cutepimjpegdec` MJPEG 4:2:2 `-q:v 2`, 1080p60 | 281 fps | **307 fps** | +9% | same |
+| `cutepimjpegdec` MJPEG 4:2:0 `-q:v 3`, 1080p60 | 341 fps | **366 fps** | +7% | same; three workers at 8.1 ms a frame top out at 370 |
+| `cutepianimdec` AVIF sequence, 1080p30 | 74 fps | **81 fps** | +9% | dav1d `max_frame_delay` 4, as for AV1 |
+| `cutepipngvdec` PNG RGBA in MOV, 1080p60 | 161 fps | **171 fps** | +6% (+11% in a second A/B run) | as MJPEG; now at libpng's own four-thread ceiling (174 fps) |
+| `cutepianimdec` APNG / WebP / WebP with alpha | 157 / 107 / 48 fps | 157 / 106 / 49 fps | 0 | none found: the cores are busy in libpng/zlib and libwebp |
 
 ### Tried, and not worth it
 
@@ -116,6 +127,9 @@ No change was made to these: they are at the limit of the library or the memory 
 | `-O3 -mcpu=cortex-a72` instead of `-O2` | no measurable change |
 | NEON fast path in the WebP/APNG compositor | no gain for APNG, WebP 58 → 50 fps: the cost was memory passes, not arithmetic |
 | Four MJPEG workers by default | 7-11% faster, but the default of 3 keeps a core free for the rest of the system |
+| CineForm: frames to any free decoder, two in flight each (as MJPEG) | no change, 82 fps: one decoder 44 fps, two 72, three 83, four 78-85: the memory bus is the limit |
+| WebP with alpha: the blend without its divisions where the picture under is clear or opaque | no change: libwebp's decode (57 ms of CPU a frame) and the blend (19 ms) keep all four cores busy |
+| Faster bob deinterlacer or 10-bit packer | nothing to gain end to end: bob outputs 145-152 pictures/s, twice the hardware decoder's 77 fps, and ProRes plays at 72 fps with or without the packer |
 
 ---
 

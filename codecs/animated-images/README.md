@@ -22,7 +22,7 @@ them slowly or not at all:
   frame costs 5-14 ms), so a WebP or APNG frame that replaces its region is decoded straight into its place in the
   output buffer, and the compositor copies from the previous frame only what lies outside the new one. Opaque WebP
   and APNG frames count as replacing (blending them is the same thing). GIF codes are read 8 bytes at a time and
-  each LZW string is written straight to its place. Same pictures, byte for byte; on one test Pi, 1080p `testsrc2`
+  each LZW string is copied from where it already is in the output. Same pictures, byte for byte; on one test Pi, 1080p `testsrc2`
   clips went from 60 to 99 fps (GIF), 75 to 125 (APNG) and 58 to 94 (WebP).
 - **Sequential formats:** AVIF and JPEG XL frames depend on earlier ones, so their libraries decode in order, with
   their own threads.

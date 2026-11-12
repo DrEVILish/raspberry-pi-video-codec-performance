@@ -47,7 +47,6 @@ typedef struct {
 typedef struct {
   CutepiPngvDec *self;
   GThread *thread;
-  Job *job;
   gboolean quit;
 } Worker;
 
@@ -55,8 +54,8 @@ struct _CutepiPngvDec {
   GstVideoDecoder parent;
   gint n_workers;
   Worker workers[MAX_WORKERS];
-  guint64 seq;
-  GQueue pending;
+  GQueue pending;    /* Jobs in decode order */
+  GQueue todo;       /* the ones no worker has taken yet: any free worker takes the next */
   GMutex lock;
   GCond cond;
   GstVideoCodecState *input_state;
@@ -81,10 +80,10 @@ worker_main (gpointer data)
   CutepiPngvDec *self = w->self;
   g_mutex_lock (&self->lock);
   for (;;) {
-    while (!w->quit && !w->job)
+    while (!w->quit && !self->todo.length)
       g_cond_wait (&self->cond, &self->lock);
     if (w->quit) break;
-    Job *j = w->job;
+    Job *j = g_queue_pop_head (&self->todo);
     g_mutex_unlock (&self->lock);
     png_image_t im = { 0 };
     im.version = PNG_IMAGE_VERSION_1;
@@ -99,7 +98,6 @@ worker_main (gpointer data)
     g_mutex_lock (&self->lock);
     j->ok = ok;
     j->done = TRUE;
-    w->job = NULL;
     g_cond_broadcast (&self->cond);
   }
   g_mutex_unlock (&self->lock);
@@ -113,7 +111,7 @@ p_start (GstVideoDecoder * dec)
   self->negotiated = FALSE;
   for (int i = 0; i < self->n_workers; i++) {
     Worker *w = &self->workers[i];
-    w->self = self; w->quit = FALSE; w->job = NULL;
+    w->self = self; w->quit = FALSE;
     w->thread = g_thread_new ("pngv-decode", worker_main, w);
   }
   return TRUE;
@@ -211,10 +209,11 @@ static GstFlowReturn
 p_handle_frame (GstVideoDecoder * dec, GstVideoCodecFrame * frame)
 {
   CutepiPngvDec *self = (CutepiPngvDec *) dec;
-  Worker *w = &self->workers[self->seq++ % self->n_workers];
+  /* Two frames a worker in flight: a worker that finishes while the oldest frame is still being decoded starts
+   * the next one instead of waiting (one a worker, round-robin, left a quarter of the time idle). */
   for (;;) {
     g_mutex_lock (&self->lock);
-    gboolean busy = w->job != NULL || self->pending.length >= (guint) self->n_workers;
+    gboolean busy = self->pending.length >= 2 * (guint) self->n_workers;
     g_mutex_unlock (&self->lock);
     if (!busy) break;
     GstFlowReturn r = finish_oldest (self);
@@ -243,7 +242,7 @@ p_handle_frame (GstVideoDecoder * dec, GstVideoCodecFrame * frame)
   }
   g_mutex_lock (&self->lock);
   g_queue_push_tail (&self->pending, j);
-  w->job = j;
+  g_queue_push_tail (&self->todo, j);
   g_cond_broadcast (&self->cond);
   g_mutex_unlock (&self->lock);
   return GST_FLOW_OK;
@@ -263,7 +262,7 @@ p_decide_allocation (GstVideoDecoder * dec, GstQuery * q)
   if (gst_query_get_n_allocation_pools (q) > 0) {
     GstBufferPool *pool; guint size, min, max;
     gst_query_parse_nth_allocation_pool (q, 0, &pool, &size, &min, &max);
-    min = MAX (min, (guint) ((CutepiPngvDec *) dec)->n_workers + 4);
+    min = MAX (min, 2 * (guint) ((CutepiPngvDec *) dec)->n_workers + 4);
     if (max && max < min) max = min;
     gst_query_set_nth_allocation_pool (q, 0, pool, size, min, max);
     if (pool) gst_object_unref (pool);
@@ -326,6 +325,7 @@ cutepi_pngv_dec_init (CutepiPngvDec * self)
   g_mutex_init (&self->lock);
   g_cond_init (&self->cond);
   g_queue_init (&self->pending);
+  g_queue_init (&self->todo);
   gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
 }
 

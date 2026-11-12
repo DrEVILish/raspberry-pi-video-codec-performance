@@ -1,8 +1,8 @@
 # Motion JPEG (MJPEG) decoding on several cores: cutepimjpegdec for GStreamer, 2.5× faster on a Raspberry Pi 4
 
 Every Motion JPEG frame is a complete JPEG, but GStreamer's `jpegdec` (libjpeg-turbo) decodes one frame at a time.
-`cutepimjpegdec` hands frames round-robin to several `jpegdec` instances (default 3, up to 4), each in a small
-internal pipeline, and puts the results back in order. The decoded buffers go downstream as they are, with no copy.
+`cutepimjpegdec` hands each frame to whichever of several `jpegdec` instances is free (default 3, up to 4, two frames
+each in flight), each in a small internal pipeline, and puts the results back in order. The decoded buffers go downstream as they are, with no copy.
 The output is **byte-identical** to `jpegdec`.
 
 | 1080p, Raspberry Pi 4 (flat out) | `jpegdec` | `cutepimjpegdec` |

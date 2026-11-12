@@ -31,7 +31,6 @@ typedef struct {
   CutepiMjpegDec *self;
   GThread *thread;
   GstElement *pipe, *src, *sink;
-  Job *job;          /* handed to this worker, NULL when idle */
   gboolean quit;
 } Worker;
 
@@ -39,8 +38,8 @@ struct _CutepiMjpegDec {
   GstVideoDecoder parent;
   gint n_workers;
   Worker workers[MAX_WORKERS];
-  guint64 seq;       /* frames handed out */
   GQueue pending;    /* Jobs in decode order */
+  GQueue todo;       /* the ones no worker has taken yet: any free worker takes the next */
   GMutex lock;
   GCond cond;
   GstVideoCodecState *input_state;
@@ -66,11 +65,11 @@ worker_main (gpointer data)
   CutepiMjpegDec *self = w->self;
   g_mutex_lock (&self->lock);
   for (;;) {
-    while (!w->quit && !w->job)
+    while (!w->quit && !self->todo.length)
       g_cond_wait (&self->cond, &self->lock);
     if (w->quit)
       break;
-    Job *j = w->job;
+    Job *j = g_queue_pop_head (&self->todo);
     g_mutex_unlock (&self->lock);
     GstSample *out = NULL;
     if (gst_app_src_push_buffer (GST_APP_SRC (w->src), gst_buffer_ref (j->in)) == GST_FLOW_OK)
@@ -78,7 +77,6 @@ worker_main (gpointer data)
     g_mutex_lock (&self->lock);
     j->out = out;
     j->done = TRUE;
-    w->job = NULL;
     g_cond_broadcast (&self->cond);
   }
   g_mutex_unlock (&self->lock);
@@ -94,7 +92,6 @@ m_start (GstVideoDecoder * dec)
     GError *e = NULL;
     w->self = self;
     w->quit = FALSE;
-    w->job = NULL;
     w->pipe = gst_parse_launch ("appsrc name=s format=time ! jpegdec ! appsink name=k sync=false max-buffers=2", &e);
     if (!w->pipe) {
       GST_ERROR_OBJECT (self, "jpegdec pipeline: %s", e ? e->message : "?");
@@ -226,12 +223,12 @@ static GstFlowReturn
 m_handle_frame (GstVideoDecoder * dec, GstVideoCodecFrame * frame)
 {
   CutepiMjpegDec *self = (CutepiMjpegDec *) dec;
-  Worker *w = &self->workers[self->seq++ % self->n_workers];
   GstFlowReturn ret = GST_FLOW_OK;
-  /* One job per worker: finish the oldest until this one is free. */
+  /* Two jobs a worker in flight: a worker that finishes while the oldest frame is still being decoded starts the
+   * next one instead of waiting (one a worker, round-robin, left a fifth of the time idle). */
   for (;;) {
     g_mutex_lock (&self->lock);
-    gboolean busy = w->job != NULL || self->pending.length >= (guint) self->n_workers;
+    gboolean busy = self->pending.length >= 2 * (guint) self->n_workers;
     g_mutex_unlock (&self->lock);
     if (!busy) break;
     ret = finish_oldest (self);
@@ -245,7 +242,7 @@ m_handle_frame (GstVideoDecoder * dec, GstVideoCodecFrame * frame)
   j->in = gst_buffer_ref (frame->input_buffer);
   g_mutex_lock (&self->lock);
   g_queue_push_tail (&self->pending, j);
-  w->job = j;
+  g_queue_push_tail (&self->todo, j);
   g_cond_broadcast (&self->cond);
   g_mutex_unlock (&self->lock);
   return GST_FLOW_OK;
@@ -325,6 +322,7 @@ cutepi_mjpeg_dec_init (CutepiMjpegDec * self)
   g_mutex_init (&self->lock);
   g_cond_init (&self->cond);
   g_queue_init (&self->pending);
+  g_queue_init (&self->todo);
   gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
 }
 

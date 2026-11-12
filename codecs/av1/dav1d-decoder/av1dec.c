@@ -381,7 +381,8 @@ cutepi_dav1d_dec_class_init (CutepiDav1dDecClass * k)
   g_object_class_install_property (ok, PROP_N_THREADS, g_param_spec_int ("n-threads", "Threads",
           "dav1d worker threads (0: one per core)", 0, 256, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   g_object_class_install_property (ok, PROP_MAX_FRAME_DELAY, g_param_spec_int ("max-frame-delay", "Max frame delay",
-          "frames decoded in parallel (0: automatic)", 0, 256, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          "frames decoded in parallel (0: dav1d's choice, 2 on four cores)", 0, 256, 4,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   g_object_class_install_property (ok, PROP_ZERO_COPY, g_param_spec_boolean ("zero-copy", "Zero copy",
           "hand dav1d's picture buffers downstream when it takes GstVideoMeta (off: copy every picture)", TRUE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
@@ -406,6 +407,7 @@ cutepi_dav1d_dec_init (CutepiDav1dDec * self)
   gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
   gst_video_decoder_set_needs_format (GST_VIDEO_DECODER (self), TRUE);
   self->allow_zero_copy = TRUE;
+  self->max_frame_delay = 4; /* not dav1d's 2 on four cores: 115 -> 133 fps at 1080p on a Pi 4, same pictures */
 }
 
 /* Loads libdav1d.so.7; 0 if it is missing or lacks an entry point. */
