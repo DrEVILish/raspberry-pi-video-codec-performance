@@ -300,6 +300,11 @@ prepare (CutepiCfhdDec * self, uint8_t * sample, size_t size)
   GstVideoDecoder *dec = GST_VIDEO_DECODER (self);
   CFHD_EncodedFormat enc = CFHD_ENCODED_FORMAT_YUV_422;
   self->workers[0].lib->sample_info (self->workers[0].dec, sample, size, CFHD_SAMPLE_ENCODED_FORMAT, &enc, sizeof enc);
+  /* The SDK reports YUV 4:2:2 for FFmpeg-written RGBA samples (the alpha was lost): read their encoded-format
+   * tag too (tag 84, big-endian tag/value pairs, 4 = RGBA 4:4:4:4). */
+  for (size_t i = 0; enc != CFHD_ENCODED_FORMAT_RGBA_4444 && i + 4 <= size && i < 256; i += 4)
+    if (sample[i] == 0 && sample[i + 1] == 84 && sample[i + 2] == 0 && sample[i + 3] == 4)
+      enc = CFHD_ENCODED_FORMAT_RGBA_4444;
   self->pixfmt = enc == CFHD_ENCODED_FORMAT_RGBA_4444 ? CFHD_PIXEL_FORMAT_BGRA : CFHD_PIXEL_FORMAT_YUY2;
   int w = 0, h = 0;
   for (int i = 0; i < self->n_workers; i++) {
