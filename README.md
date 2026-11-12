@@ -23,23 +23,23 @@ it out again. Nothing here depends on any particular application: if your softwa
 
 | Codec / task | Before | After | How | Folder |
 |---|---|---|---|---|
-| **H.264 hardware decode, 1080p** | 53-54 fps | **90 fps** (98 overclocked) | ★ firmware clock floor for the codec block | [`hardware/`](hardware/), [`h264/`](h264/) |
+| **H.264 hardware decode, 1080p** | 53-54 fps | **90 fps** (98 overclocked) | ★ firmware clock floor for the codec block | [`hardware/`](hardware/), [`codecs/h264/`](codecs/h264/) |
 | **H.264 hardware encode, 1080p 10 Mbit/s** | 41.7 fps | **74.4 fps** (93 overclocked) | ★ same firmware setting | [`hardware/`](hardware/) |
 | **Deinterlacing 1080i** (H.264 decoded in hardware) | 59.6 pictures/s (`deinterlace method=linear`) | **124.3 pictures/s** | NEON bob deinterlacer, one pass, zero-copy input | [`common/bob-deinterlacer-neon/`](common/bob-deinterlacer-neon/) |
-| **AV1 1080p60** | 32.1 fps (`av1dec`, libaom) | **76.4 fps** | GStreamer element for dav1d | [`av1/`](av1/) |
-| **Motion JPEG 1080p 4:2:0** | 115 fps (`jpegdec`) | **294 fps** | frames decoded on several cores, in order | [`mjpeg/`](mjpeg/) |
-| **Motion JPEG 1080p 4:2:2** | 92 fps | **241 fps** | same | [`mjpeg/`](mjpeg/) |
-| **PNG video 1080p RGBA** (MOV/MKV) | 45.8 fps (`pngdec`) | **145 fps** | frames decoded on several cores by libpng | [`png/`](png/) |
-| **Animated GIF 1080p** | ~33-35 fps (`avdec_gif`) | **87-92 fps** (106 with alpha) | frame-parallel LZW decode, in-order compositor | [`animated-images/`](animated-images/) |
-| **Animated WebP 1080p** | not playable (`webpdec`: stills only; libwebp's `WebPAnimDecoder` 12 fps) | **45.7 fps** (42.0 with alpha) | libwebp demux API, frames in parallel | [`animated-images/`](animated-images/) |
-| **APNG 1080p** | first frame only | **58.9 fps** (50.5 with alpha) | new decoder, libpng in parallel | [`apng/`](apng/) |
-| **AVIF image sequences 1080p** | not playable ("no playable streams"; libavif alone 35.4) | **60.2 fps** (39.5 with alpha) | own ISOBMFF parser and frame-threaded dav1d | [`avif/`](avif/) |
-| **JPEG XL animations** | not playable | **plays, with alpha** | libjxl | [`jpeg-xl/`](jpeg-xl/) |
-| **CineForm 1080p on ARM** | 19-23 fps (FFmpeg `cfhd`) | **82 / 92 / 98 fps** (2/3/4 decoders) | GoPro CineForm SDK ported to AArch64 (SSE2/MMX to NEON) | [`cineform/`](cineform/) |
+| **AV1 1080p60** | 32.1 fps (`av1dec`, libaom) | **76.4 fps** | GStreamer element for dav1d | [`codecs/av1/`](codecs/av1/) |
+| **Motion JPEG 1080p 4:2:0** | 115 fps (`jpegdec`) | **294 fps** | frames decoded on several cores, in order | [`codecs/mjpeg/`](codecs/mjpeg/) |
+| **Motion JPEG 1080p 4:2:2** | 92 fps | **241 fps** | same | [`codecs/mjpeg/`](codecs/mjpeg/) |
+| **PNG video 1080p RGBA** (MOV/MKV) | 45.8 fps (`pngdec`) | **145 fps** | frames decoded on several cores by libpng | [`codecs/png/`](codecs/png/) |
+| **Animated GIF 1080p** | ~33-35 fps (`avdec_gif`) | **87-92 fps** (106 with alpha) | frame-parallel LZW decode, in-order compositor | [`codecs/animated-images/`](codecs/animated-images/) |
+| **Animated WebP 1080p** | not playable (`webpdec`: stills only; libwebp's `WebPAnimDecoder` 12 fps) | **45.7 fps** (42.0 with alpha) | libwebp demux API, frames in parallel | [`codecs/animated-images/`](codecs/animated-images/) |
+| **APNG 1080p** | first frame only | **58.9 fps** (50.5 with alpha) | new decoder, libpng in parallel | [`codecs/apng/`](codecs/apng/) |
+| **AVIF image sequences 1080p** | not playable ("no playable streams"; libavif alone 35.4) | **60.2 fps** (39.5 with alpha) | own ISOBMFF parser and frame-threaded dav1d | [`codecs/avif/`](codecs/avif/) |
+| **JPEG XL animations** | not playable | **plays, with alpha** | libjxl | [`codecs/jpeg-xl/`](codecs/jpeg-xl/) |
+| **CineForm 1080p on ARM** | 19-23 fps (FFmpeg `cfhd`) | **82 / 92 / 98 fps** (2/3/4 decoders) | GoPro CineForm SDK ported to AArch64 (SSE2/MMX to NEON) | [`codecs/cineform/`](codecs/cineform/) |
 | **10-bit and 4:2:2 to I420** (ProRes, DNxHR, HEVC/H.264 10-bit) | 20 ms a 1080p frame (`videoconvert`) | **2.35 ms** | NEON packer | [`common/yuv-pack-neon/`](common/yuv-pack-neon/) |
-| **VP8, two 1080p60 streams at once** | 6 + 6 fps (`vp8dec`, libvpx) | **56 + 56 fps** | rank FFmpeg's decoder first (one setting) | [`vp8/`](vp8/) |
-| **HAP, DNxHR, QuickTime Animation in MKV** | "no decoder for video/x-unknown" | **plays** (frames identical to MOV) | parser for Matroska `V_QUICKTIME` tracks | [`hap/`](hap/) |
-| **ProRes / DNxHR / HAP / MJPEG under load** | QoS spiral: 1-3 frames shown a second | **no spiral** | QoS off for intra-only decoders | [`prores/`](prores/), [`docs/intra-only-qos.md`](docs/intra-only-qos.md) |
+| **VP8, two 1080p60 streams at once** | 6 + 6 fps (`vp8dec`, libvpx) | **56 + 56 fps** | rank FFmpeg's decoder first (one setting) | [`codecs/vp8/`](codecs/vp8/) |
+| **HAP, DNxHR, QuickTime Animation in MKV** | "no decoder for video/x-unknown" | **plays** (frames identical to MOV) | parser for Matroska `V_QUICKTIME` tracks | [`codecs/hap/`](codecs/hap/) |
+| **ProRes / DNxHR / HAP / MJPEG under load** | QoS spiral: 1-3 frames shown a second | **no spiral** | QoS off for intra-only decoders | [`codecs/prores/`](codecs/prores/), [`docs/intra-only-qos.md`](docs/intra-only-qos.md) |
 | **Video thumbnails (ffmpeg)** | 6.2 s CPU (AV1), 6.4 s (H.264) | **0.4 s** | decode only the nearest keyframe | [`docs/background-work.md`](docs/background-work.md) |
 
 ★ = hardware optimisation (firmware/clock/memory/GPU specifics of the Pi 4). These are collected in
@@ -48,6 +48,74 @@ it out again. Nothing here depends on any particular application: if your softwa
 All throughput figures are "flat out": the decoder runs as fast as it can into `fakesink`, outside any player, on
 the test Pi with its codec, core and GPU clocks at 650 MHz and the ARM at 2.0 GHz (see [`hardware/`](hardware/)).
 Correctness was checked against the reference decoders (byte-identical or ±1, as stated in each folder).
+The GIF, WebP and APNG rows above predate the November 2026 changes to `cutepianimdec`, which made it faster again:
+see [Benchmark results, November 2026](#benchmark-results-november-2026).
+
+---
+
+## Benchmark results, November 2026
+
+All runs are flat out into `fakesink` (`sync=false`) and use synthetic FFmpeg `testsrc2` clips, so the absolute
+numbers differ from the table above, which used other clips. "Before" is the element as first published, "after"
+is the current one. Both give byte-identical frames on every clip tested, seeks included.
+
+### `cutepianimdec` on the Raspberry Pi 4
+
+The test Pi above (codec clock floor `h264_freq_min=650`), 1080p30 clips of 150 frames (the alpha WebP: 90 frames),
+best of three runs.
+
+| Clip, 1080p | Before | After | Change |
+|---|---|---|---|
+| Animated GIF | 60.5 fps | **99 fps** | +64% |
+| APNG | 75 fps | **125 fps** | +67% |
+| Animated WebP, opaque | 58 fps | **94 fps** | +62% |
+| Animated WebP, with alpha | 38 fps | **44 fps** | +16% |
+
+What changed (details in [`codecs/animated-images/`](codecs/animated-images/)):
+
+- **GIF:** the LZW decoder reads codes 8 bytes at a time and writes each string straight to its place.
+- **WebP, APNG:** next to four decode workers the memory bus is the limit (one copy of a 1080p RGBA frame costs
+  5-14 ms). A frame that replaces its region is decoded straight into the output buffer, and only what lies outside
+  it is copied from the previous frame. Opaque frames count as replacing.
+- **Seek fix:** a flushing seek while frames were being decoded could hang the element. It no longer does.
+
+### `cutepianimdec` on x86-64
+
+A Debian 13 LXC container with 2 cores of an Intel Core i5-12600K and 4 GB, GStreamer 1.26.2, libwebp 1.5.0,
+libpng 1.6.48. 1080p30 clips of 150 frames, best of three runs.
+
+| Clip, 1080p | Before | After | Peak memory before → after |
+|---|---|---|---|
+| Animated GIF | 160 fps | **309 fps** | 72 → 73 MB |
+| APNG, opaque | 207 fps | **237 fps** | 146 → 176 MB |
+| APNG, with alpha | 188 fps | **202 fps** | - |
+| Animated WebP, opaque | 185 fps | **245 fps** | 126 → 124 MB |
+| Animated WebP, with alpha | 190 fps | **200 fps** | 121 → 137 MB |
+| Animated WebP, lossless | 186 fps | **217 fps** | - |
+
+The GIF gain carries over in full. The WebP and APNG gains are smaller than on the Pi because this machine's memory
+is much faster. Peak memory grows by at most 30 MB: frames decoded ahead can each hold an output buffer (up to 8,
+8 MB each at 1080p).
+
+### The other decoders, re-measured on the Raspberry Pi 4
+
+No change was made to these: they are at the limit of the library or the memory bus.
+
+| Decoder | Clip | GStreamer's own | This repository |
+|---|---|---|---|
+| `cutepipngvdec` | PNG RGBA in MOV, 1080p60, 300 frames | 44.4 fps (`pngdec`) | **153-156 fps** |
+| `cutepimjpegdec` | MJPEG 4:2:0 `-q:v 3` in MOV, 1080p60, 600 frames | 132-138 fps (`jpegdec`) | **324-353 fps** (3 workers, the default); 361-379 with `n-workers=4` |
+| `cutepidav1ddec` | AV1 (SVT-AV1 preset 11, CRF 35) in MKV, 1080p60, 480 frames | - | **112-113 fps** |
+
+### Tried, and not worth it
+
+| Idea | Result |
+|---|---|
+| Skip PNG checksums (`PNG_IGNORE_ADLER32`, `png_set_crc_action`) | about 1% on one thread, within run-to-run noise on four: Debian's libpng is not built with `inflateValidate`, so the Adler-32 option has no effect |
+| libdeflate instead of zlib for PNG | 72 vs 46 fps on one thread, but 84 vs 174 fps on four: inflating a whole frame at once saturates the memory bus |
+| `-O3 -mcpu=cortex-a72` instead of `-O2` | no measurable change |
+| NEON fast path in the WebP/APNG compositor | no gain for APNG, WebP 58 → 50 fps: the cost was memory passes, not arithmetic |
+| Four MJPEG workers by default | 7-11% faster, but the default of 3 keeps a core free for the rest of the system |
 
 ---
 
@@ -79,7 +147,7 @@ These matter more than any software change. Details, evidence and caveats are in
    - On non-decoder roles (ISP, encoders) the first frame is lost and the stream stalls for 490-500 ms when OUTPUT
      starts before CAPTURE.
    - Its MMAP buffers can't be cached.
-   - Patches are in [`h264/bcm2835-codec-patches/`](h264/bcm2835-codec-patches/). They are compile-tested only;
+   - Patches are in [`codecs/h264/bcm2835-codec-patches/`](codecs/h264/bcm2835-codec-patches/). They are compile-tested only;
      see that folder.
 
 ---
@@ -99,9 +167,9 @@ cd raspberry-pi-video-codec-performance
 tools/smoke-test.sh
 
 # 4. Install the plugins you want, for your user (no sudo) ...
-make -C mjpeg/parallel-mjpeg-decoder install
+make -C codecs/mjpeg/parallel-mjpeg-decoder install
 #    ... or for every user and every service on the machine
-sudo make -C mjpeg/parallel-mjpeg-decoder install-system
+sudo make -C codecs/mjpeg/parallel-mjpeg-decoder install-system
 
 # 5. Check GStreamer sees it
 gst-inspect-1.0 cutepimjpegdec
@@ -109,7 +177,7 @@ gst-inspect-1.0 cutepimjpegdec
 
 The decoders register at rank `primary + 1` (257), one above GStreamer's own, so `playbin`/`decodebin` pick them
 without changes to your pipelines. To use one in a hand-written pipeline, name it (`... ! cutepimjpegdec ! ...`).
-To try a plugin without installing it: `GST_PLUGIN_PATH=$PWD/mjpeg/parallel-mjpeg-decoder gst-launch-1.0 ...`.
+To try a plugin without installing it: `GST_PLUGIN_PATH=$PWD/codecs/mjpeg/parallel-mjpeg-decoder gst-launch-1.0 ...`.
 
 The hardware settings are separate and need a reboot: see [`hardware/firmware-clocks/`](hardware/firmware-clocks/).
 
@@ -117,32 +185,32 @@ The hardware settings are separate and need a reboot: see [`hardware/firmware-cl
 
 ## What is in each folder
 
-One folder per codec. Plugins that serve several codecs live in [`common/`](common/) and are linked from each
-codec they help.
+One folder per codec, all under [`codecs/`](codecs/). Plugins that serve several codecs live in [`common/`](common/)
+and are linked from each codec they help.
 
 | Folder | Codec | What you'll find | Type |
 |---|---|---|---|
 | [`hardware/`](hardware/) | all (Pi 4) | ★ firmware clock settings, overclock, VideoCore/ISP/V3D/memory findings | config + notes |
-| [`h264/`](h264/) | H.264 / AVC | ★ `bcm2835-codec` kernel patches, clock fix, 1080i deinterlacing, measurement pitfalls | kernel patches + notes |
-| [`hevc/`](hevc/) | H.265 / HEVC | ★ hardware decoder clocks, measured rates | notes |
-| [`mpeg2/`](mpeg2/) | MPEG-2 | 1080i deinterlacing, decoder choice | notes |
-| [`mpeg4-asp/`](mpeg4-asp/) | MPEG-4 Part 2 (DivX, Xvid) | measured: no change needed | notes |
-| [`mjpeg/`](mjpeg/) | Motion JPEG | `cutepimjpegdec`: frame-parallel decoder, 2.5× | plugin |
-| [`png/`](png/) | PNG video | `cutepipngvdec`: frame-parallel decoder, 3.2× | plugin |
-| [`animated-images/`](animated-images/) | GIF, APNG, WebP, AVIF, JPEG XL | `cutepianimdec`: frame-parallel animated image decoder with alpha | plugin |
-| [`gif/`](gif/), [`apng/`](apng/), [`webp/`](webp/), [`avif/`](avif/), [`jpeg-xl/`](jpeg-xl/) | each format | format notes, pointing to `animated-images/` | notes |
-| [`av1/`](av1/) | AV1 | `cutepidav1ddec`: dav1d decoder element, 2.4× libaom | plugin |
-| [`vp8/`](vp8/) | VP8 | decoder rank change, 9× for two streams | config |
-| [`vp9/`](vp9/) | VP9 (+ alpha) | measured decoder choice, alpha limits | notes |
-| [`theora/`](theora/) | Theora | why libtheora is the limit, options | notes |
-| [`prores/`](prores/) | Apple ProRes | intra-only QoS fix, 10-bit packing | config + notes |
-| [`dnxhr/`](dnxhr/) | Avid DNxHR / DNxHD | MKV support, intra-only QoS fix | plugin (shared) + notes |
-| [`hap/`](hap/) | HAP / HAP Alpha | `cutepiqtmkvparse`: HAP, DNxHR, QuickTime Animation in Matroska | plugin |
-| [`qtrle/`](qtrle/) | QuickTime Animation | MKV bug (FFmpeg), copies to avoid | notes + upstream report |
-| [`cineform/`](cineform/) | GoPro CineForm | ★ CineForm SDK on AArch64 (NEON) + `cutepicfhddec` element | port + plugin |
-| [`ffv1/`](ffv1/) | FFV1 | measured limits (alpha) | notes |
-| [`wmv/`](wmv/) | WMV / WMA / ASF | how to play `.wmv`/`.asf` without changing your other decoders | config |
-| [`ac3/`](ac3/) | AC-3 / E-AC-3 audio | decoder-rank pitfall | config |
+| [`codecs/h264/`](codecs/h264/) | H.264 / AVC | ★ `bcm2835-codec` kernel patches, clock fix, 1080i deinterlacing, measurement pitfalls | kernel patches + notes |
+| [`codecs/hevc/`](codecs/hevc/) | H.265 / HEVC | ★ hardware decoder clocks, measured rates | notes |
+| [`codecs/mpeg2/`](codecs/mpeg2/) | MPEG-2 | 1080i deinterlacing, decoder choice | notes |
+| [`codecs/mpeg4-asp/`](codecs/mpeg4-asp/) | MPEG-4 Part 2 (DivX, Xvid) | measured: no change needed | notes |
+| [`codecs/mjpeg/`](codecs/mjpeg/) | Motion JPEG | `cutepimjpegdec`: frame-parallel decoder, 2.5× | plugin |
+| [`codecs/png/`](codecs/png/) | PNG video | `cutepipngvdec`: frame-parallel decoder, 3.2× | plugin |
+| [`codecs/animated-images/`](codecs/animated-images/) | GIF, APNG, WebP, AVIF, JPEG XL | `cutepianimdec`: frame-parallel animated image decoder with alpha | plugin |
+| [`codecs/gif/`](codecs/gif/), [`codecs/apng/`](codecs/apng/), [`codecs/webp/`](codecs/webp/), [`codecs/avif/`](codecs/avif/), [`codecs/jpeg-xl/`](codecs/jpeg-xl/) | each format | format notes, pointing to `animated-images/` | notes |
+| [`codecs/av1/`](codecs/av1/) | AV1 | `cutepidav1ddec`: dav1d decoder element, 2.4× libaom | plugin |
+| [`codecs/vp8/`](codecs/vp8/) | VP8 | decoder rank change, 9× for two streams | config |
+| [`codecs/vp9/`](codecs/vp9/) | VP9 (+ alpha) | measured decoder choice, alpha limits | notes |
+| [`codecs/theora/`](codecs/theora/) | Theora | why libtheora is the limit, options | notes |
+| [`codecs/prores/`](codecs/prores/) | Apple ProRes | intra-only QoS fix, 10-bit packing | config + notes |
+| [`codecs/dnxhr/`](codecs/dnxhr/) | Avid DNxHR / DNxHD | MKV support, intra-only QoS fix | plugin (shared) + notes |
+| [`codecs/hap/`](codecs/hap/) | HAP / HAP Alpha | `cutepiqtmkvparse`: HAP, DNxHR, QuickTime Animation in Matroska | plugin |
+| [`codecs/qtrle/`](codecs/qtrle/) | QuickTime Animation | MKV bug (FFmpeg), copies to avoid | notes + upstream report |
+| [`codecs/cineform/`](codecs/cineform/) | GoPro CineForm | ★ CineForm SDK on AArch64 (NEON) + `cutepicfhddec` element | port + plugin |
+| [`codecs/ffv1/`](codecs/ffv1/) | FFV1 | measured limits (alpha) | notes |
+| [`codecs/wmv/`](codecs/wmv/) | WMV / WMA / ASF | how to play `.wmv`/`.asf` without changing your other decoders | config |
+| [`codecs/ac3/`](codecs/ac3/) | AC-3 / E-AC-3 audio | decoder-rank pitfall | config |
 | [`common/`](common/) | interlaced video, 10-bit, GPU upload | `cutepibob` (NEON deinterlacer), `cutepiyuvpack` (NEON 10-bit/4:2:2 packer), `cutepisysdmabuf` (zero-copy GPU upload) | plugins |
 | [`docs/`](docs/) | all | intra-only QoS, background work next to playback, pitfalls, upstream bug reports | notes |
 | [`tools/`](tools/) | - | shared Makefile rules, `smoke-test.sh` | build/test |
@@ -198,17 +266,17 @@ NEON bob deinterlacer in [`common/bob-deinterlacer-neon/`](common/bob-deinterlac
 the same output (±1) as `deinterlace method=linear fields=all`.
 
 **How do I play AV1 smoothly on a Raspberry Pi 4?**
-Use dav1d, not libaom: [`av1/`](av1/) has a GStreamer element that loads the system's libdav1d. It runs 2.4× faster
+Use dav1d, not libaom: [`codecs/av1/`](codecs/av1/) has a GStreamer element that loads the system's libdav1d. It runs 2.4× faster
 than `av1dec`.
 
 **Why do animated WebP/APNG/AVIF files play slowly or show only the first frame in GStreamer?**
 GStreamer 1.26's `webpdec` decodes WebP stills only, and it has no APNG demuxer and no AVIF-sequence or JPEG XL
-support. FFmpeg 7.1 can't decode animated WebP either. [`animated-images/`](animated-images/) adds one decoder for all five, with alpha, decoding frames in
+support. FFmpeg 7.1 can't decode animated WebP either. [`codecs/animated-images/`](codecs/animated-images/) adds one decoder for all five, with alpha, decoding frames in
 parallel.
 
 **Can ProRes, DNxHR, CineForm or HAP play on a Raspberry Pi 4?**
 They decode in software. ProRes LT and Proxy and DNxHR LB and HQ played at 1080p60 on KMS display planes in our
-tests. CineForm decodes at 82-98 fps with the ported SDK ([`cineform/`](cineform/)). HAP in MKV needs the parser in [`hap/`](hap/). Turn QoS off for these intra-only
+tests. CineForm decodes at 82-98 fps with the ported SDK ([`codecs/cineform/`](codecs/cineform/)). HAP in MKV needs the parser in [`codecs/hap/`](codecs/hap/). Turn QoS off for these intra-only
 decoders ([`docs/intra-only-qos.md`](docs/intra-only-qos.md)), or a brief stall turns into seconds of dropped frames.
 
 **Is overclocking needed?**
@@ -229,7 +297,7 @@ clock names, so the firmware settings and kernel patches are Pi 4 only.
   State the board, the clocks (`vcgencmd measure_clock`), the OS and the command.
 - **Licence:**
   - GStreamer plugins and docs: [LGPL-2.1-or-later](LICENSE), the same as GStreamer.
-  - Kernel patches: GPL-2.0 ([`h264/bcm2835-codec-patches/LICENSE`](h264/bcm2835-codec-patches/LICENSE)), as the
+  - Kernel patches: GPL-2.0 ([`codecs/h264/bcm2835-codec-patches/LICENSE`](codecs/h264/bcm2835-codec-patches/LICENSE)), as the
     kernel requires.
   - Vendored third-party headers keep their own licences, next to them: dav1d (BSD-2), libwebp (BSD-3), libavif
     (BSD-2), libjxl (BSD-3), sse2neon (MIT), and the CineForm SDK (Apache-2.0 / MIT).

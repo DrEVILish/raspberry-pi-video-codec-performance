@@ -92,5 +92,5 @@ The script also keeps your previous file as `config.txt.codec-perf-bak`.
   250 MHz.
 - **Cost:** a little idle power and heat. Measuring that was out of scope.
 - **The proper fix is in the kernel:** the driver should request the clock while it streams, as `rpi-hevc-dec` does.
-  Patches for that are in [`../../h264/bcm2835-codec-patches/`](../../h264/bcm2835-codec-patches/). They are not
+  Patches for that are in [`../../h264/bcm2835-codec-patches/`](../../codecs/h264/bcm2835-codec-patches/). They are not
   tested on hardware yet, so the `config.txt` route is the one to use today.
