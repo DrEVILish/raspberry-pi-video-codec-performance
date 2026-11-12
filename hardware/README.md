@@ -12,8 +12,8 @@ firmware clocks alone takes hardware H.264 decode from 54 to 90 fps.
 | 4 | ★ V4L2 MMAP buffers are uncached (write-combined) | read each row once; use cached dma-heap buffers + `DMA_BUF_IOCTL_SYNC` | 1080p frame read 6.1 ms → 3.3 ms |
 | 5 | ★ The V3D GPU cannot composite moving 1080p60 with GStreamer GL | put video on KMS display planes; keep the GPU for small layers | 1 GL layer of 1080p video: ~16 fps, V3D render queue 90% busy |
 | 6 | ★ The V3D samples non-contiguous `/dev/dma_heap/system` buffers in place | upload into system dma-heap buffers, not CMA; keep CMA for scanout | no CMA used; pixel-identical to a normal upload |
-| 7 | The `bcm2835-codec` driver: start-order bug, no cache hints, no clock requests | [`../h264/bcm2835-codec-patches/`](../h264/bcm2835-codec-patches/) (compile-tested only) | first-frame loss and 0.5 s stall on non-decoder roles fixed; cached MMAP possible |
-| 8 | NEON on the Cortex-A72 | NEON versions of deinterlacing, pixel packing, SSE2/MMX code ([`../common/`](../common/), [`../cineform/`](../cineform/)) | 2.1× (bob), 8.5× (10-bit pack), CineForm on ARM at all |
+| 7 | The `bcm2835-codec` driver: start-order bug, no cache hints, no clock requests | [`../h264/bcm2835-codec-patches/`](../codecs/h264/bcm2835-codec-patches/) (compile-tested only) | first-frame loss and 0.5 s stall on non-decoder roles fixed; cached MMAP possible |
+| 8 | NEON on the Cortex-A72 | NEON versions of deinterlacing, pixel packing, SSE2/MMX code ([`../common/`](../common/), [`../cineform/`](../codecs/cineform/)) | 2.1× (bob), 8.5× (10-bit pack), CineForm on ARM at all |
 | 9 | ★ The memory bus is the shared limit for several streams | pair a hardware stream with a cheap software codec; one atomic commit per refresh for all planes | hardware + CPU mixes total ~127 decoded 1080p frames/s |
 
 ---
@@ -93,7 +93,7 @@ p99, idle or with all four cores busy. Dmabuf imports to the firmware happen onc
   is 2.1× faster.
 - **Ask for cached buffers where the driver allows it.** `bcm2835-codec` doesn't set `allow_cache_hints`, so
   userspace can't request cached (`V4L2_MEMORY_FLAG_NON_COHERENT`) MMAP buffers. Patch 0003 in
-  [`../h264/bcm2835-codec-patches/`](../h264/bcm2835-codec-patches/) enables it.
+  [`../h264/bcm2835-codec-patches/`](../codecs/h264/bcm2835-codec-patches/) enables it.
 - **Cache maintenance for dma-heap buffers written by the CPU:**
   - Bracket the writes with `DMA_BUF_IOCTL_SYNC` (`START|WRITE` before, `END|WRITE` after).
   - Never issue a `START` (cache invalidate) on a buffer whose writer may still have dirty lines: it discards them.
@@ -146,7 +146,7 @@ one moving 1080p layer on the Pi 4's V3D:
 ## 7. The `bcm2835-codec` driver
 
 The driver source was read in full (identical to `rpi-6.18.y`). Its findings, and three patches, are in
-[`../h264/bcm2835-codec-patches/`](../h264/bcm2835-codec-patches/):
+[`../h264/bcm2835-codec-patches/`](../codecs/h264/bcm2835-codec-patches/):
 - **Clocks:** no clock requests, which is item 1 above, fixed in the kernel.
 - **Start order:** `ignore_cap_streaming` is set for every role, so the ISP and the encoders lose frame 0 and stall
   490-500 ms when OUTPUT starts before CAPTURE.
@@ -164,7 +164,7 @@ The Cortex-A72's NEON unit works on 128-bit vectors (16 pixels of 8-bit video pe
   an instruction, over a three-row cached ring.
 - [`../common/yuv-pack-neon/`](../common/yuv-pack-neon/): 10-bit to 8-bit narrowing and 4:2:2 to 4:2:0 chroma
   averaging in one pass (2.35 ms against 20 ms for `videoconvert` on 1080p 10-bit 4:2:2).
-- [`../cineform/`](../cineform/): the CineForm SDK's x86 SSE2 code through sse2neon, plus `mmx2neon.h`, about 50 64-bit
+- [`../cineform/`](../codecs/cineform/): the CineForm SDK's x86 SSE2 code through sse2neon, plus `mmx2neon.h`, about 50 64-bit
   MMX intrinsics on NEON with Intel's saturation and shift semantics. Single-threaded output is bit-identical to x86.
 - **NEON performance pitfall found along the way:** for row conversions, single-register `vld1q`/`vst1q` were faster
   on the A72 than the multi-register `vld1q_u8_x4` forms.

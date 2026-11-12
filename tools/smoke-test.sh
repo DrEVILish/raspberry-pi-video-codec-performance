@@ -8,9 +8,9 @@
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-PLUGINS="common/bob-deinterlacer-neon common/yuv-pack-neon common/system-dmabuf-upload mjpeg/parallel-mjpeg-decoder
-png/parallel-png-video-decoder animated-images/frame-parallel-animated-decoder av1/dav1d-decoder
-hap/quicktime-in-matroska-parser"
+PLUGINS="common/bob-deinterlacer-neon common/yuv-pack-neon common/system-dmabuf-upload codecs/mjpeg/parallel-mjpeg-decoder
+codecs/png/parallel-png-video-decoder codecs/animated-images/frame-parallel-animated-decoder codecs/av1/dav1d-decoder
+codecs/hap/quicktime-in-matroska-parser"
 GP=""
 for d in $PLUGINS; do
   make -s -C "$ROOT/$d" >/dev/null || { echo "BUILD FAILED: $d"; exit 1; }
