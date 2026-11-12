@@ -37,6 +37,11 @@ MMX intrinsics and doesn't build for ARM. This folder has:
 - **Fix, deterministic dither** (`cutepi_rand.c` + `-Drand=cutepi_rand`, and a reset in the patch): the SDK dithers
   10-to-8-bit output with libc `rand()`, whose global state made output vary between runs and threads. Each sample
   now dithers from the same generator state.
+- **Faster RGBA** (`cutepi.patch`): RGBA to BGRA went through a 16-bit copy of the whole frame, written and then
+  read back (16 MB each way at 1080p). With one decoder thread, each pair of rows is now converted as soon as it is
+  decoded, through two rows that stay in the cache: 34 → 41 fps at 1080p with three decoders, output unchanged.
+- **Faster RGB to YUY2** (`compat/mmx2neon.h`): sse2neon's `_mm_cvtps_epi32` read the rounding mode from FPCR at
+  every call. The SDK never changes it, so the conversion is now direct: 48 → 50 fps, output unchanged.
 
 ### Build the library
 

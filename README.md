@@ -40,7 +40,7 @@ The test system is described [further down](#test-system-and-method).
 | **VP8** | 720p30, WebM | 240 fps | **466 fps** | 1.9× faster (one setting) |
 | **GoPro CineForm** 4:2:2 | 1080p25, MOV | 21.1 fps | **81.4 fps** | **3.9× faster** |
 | GoPro CineForm 4:2:2 | 4K (2160p25) | 1.4 fps | **23.0 fps** | 16× faster |
-| GoPro CineForm RGB / RGBA 12-bit | 1080p25 | 11.5 / 8.5 fps | **48.3 / 47.9 fps** | 4-5.6× faster |
+| GoPro CineForm RGB / RGBA 12-bit | 1080p25 | 11.5 / 8.5 fps | **50.5 / 41.5 fps** (transparency kept) | 4.4× / 4.9× faster |
 | **APNG** (animated PNG) | 1080p | first frame only | **149 fps** (93 with transparency) | now plays |
 | **Animated WebP** | 1080p | doesn't play | **55.7 fps** (69.7 with transparency) | now plays |
 | **AVIF animation** | 1080p | doesn't play | **65.4 fps** (52.5 with transparency) | now plays |
@@ -72,7 +72,7 @@ The test system is described [further down](#test-system-and-method).
 | FFV1 | 1080p25 | 114-118 fps | FFmpeg |
 
 \* These H.264 figures include one extra copy of every frame that the measuring setup adds. Without it the Pi
-decodes 1080p at 90-95 fps (see [`codecs/h264/`](codecs/h264/)). Where a range is given, the two runs (stock and
+decodes 1080p at 99-103 fps (measured into `fakevideosink`; see [`codecs/h264/`](codecs/h264/)). Where a range is given, the two runs (stock and
 with this repo) used the same decoder, so the range is run-to-run variation, not a gain or loss.
 
 The figures for 1080i deinterlacing and H.264 hardware decode come from earlier measurements on this Pi, because
@@ -99,8 +99,8 @@ they need a reboot with different firmware settings to repeat. Details are in [`
 
 **Nothing we checked looks worse, and the one real loss we found (transparency in some CineForm files) is
 fixed.** We compared every frame of every test clip decoded with this repository against the same clip decoded by
-the standard decoder. Where the results are "identical", every pixel of every frame matches exactly. A few checks
-are still pending and are marked as such.
+the standard decoder. Where the results are "identical", every pixel of every frame matches exactly. One check is
+still open and is marked as such.
 
 | What we compared | Result |
 |---|---|
@@ -108,19 +108,20 @@ are still pending and are marked as such.
 | **PNG video**: our decoder against GStreamer's `pngdec` (480 frames) | **identical** |
 | **AV1**: our decoder (dav1d) against GStreamer's `av1dec` (libaom), 2 clips | **identical** |
 | **Animated GIF**: against FFmpeg's GIF decoder (3 files, 630 frames) | **identical** |
+| **Animated GIF with transparency**: against FFmpeg, compared with the transparency applied (200 frames) | **identical** |
 | **APNG**, with and without transparency: against FFmpeg | **identical** |
 | **Animated WebP**, with and without transparency: against libwebp's own decoder | **identical** |
 | **JPEG XL**: against FFmpeg's libjxl decoder | **identical** |
+| **AVIF animations**, with and without transparency: against libavif's own `avifdec` (sampled frames, x86-64) | **identical**. FFmpeg's decode differs (33-39 dB) because it turns the YUV pictures into RGB with different colour maths |
 | **VP8**: FFmpeg's decoder (our setting) against libvpx | **identical** |
 | **HAP, HAP Alpha, DNxHR, ProRes, CineForm in MKV**: against the same video in MOV | **identical** |
 | **HEVC**: the Pi's hardware decoder against FFmpeg's software decoder | **identical** |
 | **CineForm 4:2:2**: the ported GoPro SDK against FFmpeg's CineForm decoder | 58 dB: two different decoders, the difference can't be seen |
-| **CineForm RGBA made by FFmpeg**: our decoder against FFmpeg's | **was losing the transparency** (the SDK misread the format, so the output had no alpha). **Fixed**: alpha now within 56.6 dB, colour 57-61 dB. Tested on x86-64; the Pi re-check is pending |
-| **CineForm RGB 12-bit**: our YUY2 output (made for the Pi's display planes) against FFmpeg's | 42 dB. Converting RGB to 4:2:2 YUV costs some colour detail; being checked |
-| **1080i bob deinterlacer** against GStreamer's `deinterlace method=linear` | **identical** when its `tff` property matches the clip's field order (it doesn't read it from the stream). Tested on x86-64; the Pi re-check is pending |
+| **CineForm RGBA** (3 files): our decoder against FFmpeg's | **was losing the transparency** in files made by FFmpeg (the SDK misread the format, so the output had no alpha). **Fixed** and checked on the Pi: alpha identical or 60 dB, colour 58-62 dB |
+| **CineForm RGB 12-bit**: our YUY2 output (made for the Pi's display planes) against FFmpeg's RGB | **open:** 42 dB compared as YUV, 33 dB compared as RGB. Squeezing RGB into 8-bit 4:2:2 YUV loses colour detail, and the RGB figure may also include a colour-maths mismatch in the comparison. Decoding these files to RGB instead would avoid it |
+| **1080i bob deinterlacer** against GStreamer's `deinterlace method=linear` (250 frames) | **identical** when its `tff` property matches the clip's field order (it doesn't read it from the stream; the test clip needs `tff=false`) |
 | **10-bit to 8-bit packer** against GStreamer's `videoconvert` | 46-53 dB: both drop to 8-bit 4:2:0 and round slightly differently; the difference can't be seen |
-| **H.264**: the Pi's hardware decoder at the raised clocks against FFmpeg's software decoder | 79-80 dB: almost identical but not bit-exact; being investigated |
-| Animated GIF with transparency, AVIF animations | comparison pending (the first test was set up wrongly) |
+| **H.264**: the Pi's hardware decoder at the raised clocks against FFmpeg's software decoder | 80 dB (77.9-81.8 per frame): tiny rounding differences on every frame, far below what can be seen. The cause isn't known yet. FFmpeg and GStreamer's software decoders match each other exactly |
 
 **What "PSNR" means.** Where two pictures are not exactly identical, we give the PSNR: a standard measure of how
 close two pictures are, in decibels (dB). Higher is closer. Above about 45 dB the difference can't be seen;
@@ -316,6 +317,7 @@ clip, and CuTePi's own tests for these elements pass.
 | `-O3 -mcpu=cortex-a72` instead of `-O2` | no measurable change |
 | NEON fast path in the WebP/APNG compositor | no gain for APNG, WebP 58 → 50 fps: the cost was memory passes, not arithmetic |
 | Four MJPEG workers by default | 7-11% faster, but the default of 3 keeps a core free for the rest of the system |
+| CineForm RGBA: zero-fill, prefetch, `-mcpu=cortex-a72`, four decoders | no gain for 4:2:2 and 4K (memory-bound); RGBA gained 21% and RGB 12-bit 4% from converting rows as they are decoded and skipping a rounding-mode read |
 | CineForm: frames to any free decoder, two in flight each (as MJPEG) | no change, 82 fps: one decoder 44 fps, two 72, three 83, four 78-85: the memory bus is the limit |
 | WebP with alpha: the blend without its divisions where the picture under is clear or opaque | no change: libwebp's decode (57 ms of CPU a frame) and the blend (19 ms) keep all four cores busy |
 | Faster bob deinterlacer or 10-bit packer | nothing to gain end to end: bob outputs 145-152 pictures/s, twice the hardware decoder's 77 fps, and ProRes plays at 72 fps with or without the packer |

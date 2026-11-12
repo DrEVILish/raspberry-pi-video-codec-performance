@@ -74,3 +74,13 @@ MI _mm_srli_si64(__m64 a, int n) { return n > 63 ? vdup_n_s64(0) : vreinterpret_
 MI _mm_srai_pi16(__m64 a, int n) { return M64(vshl_s16(S16(a), vdup_n_s16(-(n > 15 ? 15 : n)))); }
 MI _mm_srai_pi32(__m64 a, int n) { return vreinterpret_s64_s32(vshl_s32(S32(a), vdup_n_s32(-(n > 31 ? 31 : n)))); }
 MI _mm_sra_pi16(__m64 a, __m64 c) { uint64_t n = vget_lane_u64(vreinterpret_u64_s64(c), 0); return _mm_srai_pi16(a, n > 15 ? 15 : (int)n); }
+
+/* sse2neon's _mm_cvtps_epi32 reads FPCR and branches on the rounding mode at every call (12 times per 8 pixels in
+ * the RGB to YUV rows). The SDK never leaves round-to-nearest, so convert directly; x86's out-of-range result
+ * is kept. */
+static inline __m128i __attribute__((always_inline)) cutepi_cvtps_epi32(__m128 a)
+{
+	float32x4_t f = vreinterpretq_f32_m128(a);
+	return vreinterpretq_m128i_s32(_sse2neon_cvtps_epi32_fixup(f, vcvtnq_s32_f32(f)));
+}
+#define _mm_cvtps_epi32 cutepi_cvtps_epi32

@@ -17,7 +17,8 @@ git reset -q --hard "$COMMIT"
 cp -r "$HERE/compat" .                      # x86 intrinsics headers -> NEON (sse2neon + mmx2neon.h)
 cp "$HERE/Makefile" .                       # native build, no cmake
 cp "$HERE/cutepi_rand.c" Codec/             # per-sample dither generator (deterministic output)
-git apply "$HERE/cutepi.patch"              # bounds check + dither reset in Codec/decoder.c
+git apply "$HERE/cutepi.patch"              # bounds check, dither reset, RGBA rows (Codec/decoder.c, codec.h)
+make clean                                  # the Makefile tracks no headers, and the patch changes one (codec.h)
 make -j"$(nproc)"
 if [ "${1:-}" = install ]; then make install; fi
 echo "built $SDK/libcutepi-cfhd.so"

@@ -1,6 +1,17 @@
+--- a/Codec/codec.h
++++ b/Codec/codec.h
+@@ -1511,6 +1511,8 @@ typedef struct decoder		// Decoder state (derived from codec)
+ 	int StereoBufferSize;
+ 	int StereoBufferFormat;
+ 	int RGBFilterBufferPhase;		// 0 = RGB, 1 = GRB, 2 = YUV
++	uint8_t *cutepi_rows_output;	// CuTePi: not NULL while rows go from RGBFilterBuffer16 to this frame as they are decoded
++	int cutepi_rows_pitch;
+ 	short *RawCube;					// a buffer use new 3DLUT cubes.
+ 	short *Curve2Linear;
+ 	short *Linear2CurveRed;
 --- a/Codec/decoder.c
 +++ b/Codec/decoder.c
-@@ -10098,6 +10098,12 @@
+@@ -10098,6 +10098,12 @@ bool DecodeSample(DECODER *decoder, BITSTREAM *input, uint8_t *output, int pitch
  	DECODER *local_decoder = decoder;
  	//Frame_Region emptyFrameMask = {0};
  	Frame_Region emptyFrameMask = FRAME_REGION_INITIALIZER;
@@ -13,7 +24,7 @@
  	int orig_width = decoder->frame.width;
  	int orig_height = decoder->frame.height;
  
-@@ -20774,6 +20780,9 @@
+@@ -20774,6 +20780,9 @@ bool DecodeFastRunsFSM16s(DECODER *decoder, BITSTREAM *stream, IMAGE *wavelet,
  
  					chunksize -= 8;
  
@@ -23,7 +34,7 @@
  					{
  						uint32_t *ptr = (uint32_t *)stream->lpCurrentWord;
  						ptr += (chunksize>>2);
-@@ -20791,11 +20800,18 @@
+@@ -20791,11 +20800,18 @@ bool DecodeFastRunsFSM16s(DECODER *decoder, BITSTREAM *stream, IMAGE *wavelet,
  				else
  				{
  continuesearch:
@@ -43,3 +54,105 @@
  					end = stream->nWordsUsed;
  				}
  			}
+@@ -26803,6 +26819,15 @@ CODEC_ERROR ReconstructSampleFrameRGB444ToBuffer(DECODER *decoder, int frame, ui
+ 			}
+ 
+ #if _THREADED
++			// CuTePi: see CutepiRowsToOutput. Only the plain case the second pass handles with those two calls.
++			if (channels == 4 && ALPHAOUTPUT(info->format) && !decoder->apply_color_active_metadata &&
++				!decoder->frame.generate_look && info->resolution == DECODED_RESOLUTION_FULL &&
++				decoder->channel_decodes <= 1 && (decoder->thread_cntrl.capabilities >> 16) == 1 &&
++				decoder->worker_thread.pool.thread_count <= 1)
++			{
++				decoder->cutepi_rows_output = output;
++				decoder->cutepi_rows_pitch = pitch;
++			}
+ 			TransformInverseSpatialUniversalThreadedToRow16u(decoder, frame, num_channels,
+ 								(uint8_t *)decoder->RGBFilterBuffer16, info->width * channels * 2,
+ 								info, chroma_offset, precision);
+@@ -26815,6 +26840,9 @@ CODEC_ERROR ReconstructSampleFrameRGB444ToBuffer(DECODER *decoder, int frame, ui
+ 
+ 
+ #if _THREADED
++			if (decoder->cutepi_rows_output)
++				decoder->cutepi_rows_output = NULL;		// the rows are already in the output frame
++			else
+ 			{
+ 				WORKER_THREAD_DATA *mailbox = &decoder->worker_thread.data;
+ 
+@@ -27320,6 +27348,26 @@ void TransformInverseSpatialUniversalThreadedToOutput(
+ 
+ // Routines for the worker threads that use the new threads API
+ 
++// CuTePi: RGBA to an 8-bit format with alpha went through a 16-bit copy of the whole frame (RGBFilterBuffer16),
++// written by the inverse transform and read back by a second pass (Row16uFull2OutputFormat). At 1080p that is
++// 16 MB written to memory and read again per frame, and memory traffic is what limits several decoders side by
++// side. With one worker thread, the rows are now converted as soon as the transform has written them, through
++// the first two rows of that buffer, which stay in the cache. Same calls per row, in the same order of rows as
++// the second pass made them, so the output is the same.
++static void CutepiRowsToOutput(DECODER *decoder, FRAME_INFO *info, int thread_index, int y, int count, int src_row)
++{
++	uint16_t *scanline = (uint16_t *)decoder->threads_buffer[thread_index];
++	int i;
++	for (i = 0; i < count && y + i < info->height; i++)
++	{
++		ConvertPlanarGRBAToPlanarRGBA((PIXEL *)scanline,
++			(PIXEL *)(decoder->RGBFilterBuffer16 + info->width * 4 * (src_row + i)), info->width);
++		Convert4444LinesToOutput(decoder, info->width, 1, y + i, scanline,
++			decoder->cutepi_rows_output + decoder->cutepi_rows_pitch * (y + i), decoder->cutepi_rows_pitch,
++			info->format, 16, ACTIVEMETADATA_PRESATURATED|ACTIVEMETADATA_PLANAR);
++	}
++}
++
+ void TransformInverseSpatialSectionToOutput(DECODER *decoder, int thread_index,
+ 											int frame_index, int num_channels,
+ 											uint8_t *output_buffer, int output_pitch, FRAME_INFO *info,
+@@ -27360,6 +27408,7 @@ void TransformInverseSpatialSectionToOutput(DECODER *decoder, int thread_index,
+ 	int channel;
+ 	int row;
+ 	int odd_display_lines = 0;
++	int bottom_row = -1;
+ 
+ 	THREAD_ERROR error;
+ 
+@@ -27495,6 +27544,8 @@ void TransformInverseSpatialSectionToOutput(DECODER *decoder, int thread_index,
+ 									   (PIXEL *)buffer, buffer_size,
+ 									   precision,
+ 									   horizontal_filter_proc);
++		if (decoder->cutepi_rows_output)
++			CutepiRowsToOutput(decoder, info, thread_index, 0, 2, 0);
+ 	}
+ 
+ 	if (thread_index == TRANSFORM_WORKER_BOTTOM_THREAD || decoder->worker_thread.pool.thread_count == 1)
+@@ -27532,6 +27583,7 @@ void TransformInverseSpatialSectionToOutput(DECODER *decoder, int thread_index,
+ 											(PIXEL *)buffer, buffer_size,
+ 											precision, odd_display_lines,
+ 											horizontal_filter_proc);
++			bottom_row = row;	// CuTePi: converted after the middle rows, to keep the order of the rows
+ 		}
+ 	}
+ 
+@@ -27557,10 +27609,14 @@ void TransformInverseSpatialSectionToOutput(DECODER *decoder, int thread_index,
+ 
+ 			// Compute the output row corresponding to this row index
+ 			output_row_ptr = output_buffer + row * 2 * pitch;
++			if (decoder->cutepi_rows_output)
++				output_row_ptr = output_buffer;		// CuTePi: every pair of rows goes through the first two
+ 		}
+ 		else
+ 		{
+ 			// No more work to do
++			if (decoder->cutepi_rows_output && bottom_row >= 0)
++				CutepiRowsToOutput(decoder, info, thread_index, bottom_row * 2, 2, bottom_row * 2);
+ 			return;
+ 		}
+ 
+@@ -27592,6 +27648,8 @@ void TransformInverseSpatialSectionToOutput(DECODER *decoder, int thread_index,
+ 											  precision,
+ 											  horizontal_filter_proc,
+ 											  outputlines);
++			if (decoder->cutepi_rows_output)
++				CutepiRowsToOutput(decoder, info, thread_index, row * 2, outputlines, 0);
+ 		}
+ 	}
+ }
